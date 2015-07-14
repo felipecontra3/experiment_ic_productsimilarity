@@ -152,7 +152,7 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
 
 def main(sc):
     categs1 = ["Computers & Tablets", "Video Games", "TV & Home Theater"]#, "Musical Instruments"]
-    categs2 = ["Computers & Tablets"]
+    #categs2 = ["Computers & Tablets"]
 
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
@@ -174,9 +174,9 @@ def main(sc):
     tfidfRDDBroadcast = sc.broadcast(tfidfRDD.map(lambda x: (x[0], x[1])).collectAsMap())
     corpusInvPairsRDD = tfidfRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
 
-    vectSpaceRDD1 = tfidfRDD.map(lambda t: LabeledPoint(t[2], SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+    vectSpaceRDD = tfidfRDD.map(lambda t: LabeledPoint(t[2], SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
     
-    trainingRDD, testRDD = vectSpaceRDD1.randomSplit([8, 2], seed=0L)
+    trainingRDD, testRDD = vectSpaceRDD.randomSplit([8, 2], seed=0L)
 
     model = NaiveBayes.train(trainingRDD)
     predictionAndLabel = testRDD.map(lambda p : (model.predict(p.features), p.label))
