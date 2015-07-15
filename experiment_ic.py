@@ -1,4 +1,5 @@
 import sys, os, math
+from timeit import default_timer as timer
 import re, unicodedata
 import nltk
 from nltk import word_tokenize
@@ -7,6 +8,7 @@ from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
 from pyspark.mllib.classification import NaiveBayes
+#from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
 from pyspark.mllib.linalg import Vectors, SparseVector
 from pyspark.mllib.regression import LabeledPoint
 
@@ -56,11 +58,11 @@ def findProductsByCategory(categories):
 		if '_id' in keys:
 			id = produto['_id']
 		
-		category = None
+		category = None; fatherCategory = None
 		if 'categorias' in keys:
-			category = produto['categorias'][2]['nome']
+			Subcategory = produto['categorias'][2]['nome']; Category = produto['categorias'][1]['nome']
 
-		product_list.append((id, description, category))
+		product_list.append((id, description, Category, Subcategory))
 
 	return product_list
                    
@@ -151,54 +153,100 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
 
 
 def main(sc):
-    categs1 = ["Computers & Tablets", "Video Games", "TV & Home Theater"]#, "Musical Instruments"]
-    #categs2 = ["Computers & Tablets"]
+    categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
     
-    #Set 1
-    productRDD = sc.parallelize(findProductsByCategory(categs1))
+    start = timer()
+    print 'finding products...'
 
-    categories = productRDD.map(lambda x: x[2]).distinct().collect()
+    productRDD = sc.parallelize(findProductsByCategory(categs))
+    elap = timer()-start
+    print 'it tooks %f seconds' % elap
 
-    corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2]))
-						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], categories.index(s[2]))))
+    start = timer()
+    print 'cleaning corpus...'
+
+    corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
+						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
+
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
 
     tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
     numTokens = len(tokens)
 
+    start = timer()
+    print 'generating TF-IDF...'
+
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
-    tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2]))
-    tfidfRDDBroadcast = sc.broadcast(tfidfRDD.map(lambda x: (x[0], x[1])).collectAsMap())
-    corpusInvPairsRDD = tfidfRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
+    tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
 
-    vectSpaceRDD = tfidfRDD.map(lambda t: LabeledPoint(t[2], SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
+
+    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
+    category = productRDD.map(lambda x: x[2]).distinct().collect()
+
+    start = timer()
+    print 'training Naive Bayes with subcategory...'
+
+    #training the Naive Bayes using the subcategory and testing accuracity at category
+    vectSpaceSubcategoryRDD = tfidfRDD.map(lambda t: LabeledPoint(categoryAndSubcategory.index((t[2], t[3])) , SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+    trainingSubcategoryRDDS, testSubcategoryRDD = vectSpaceSubcategoryRDD.randomSplit([8, 2], seed=0L)
+    modelSubcategory = NaiveBayes.train(trainingSubcategoryRDDS)
+
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
+
+
+    start = timer()
+    print 'predicting Naive Bayes with subcategory...'
+
+    predictionAndLabelSubcategory = testSubcategoryRDD.map(lambda p : (categoryAndSubcategory[int(modelSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
+    acuraccySubcategory = float(predictionAndLabelSubcategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelSubcategory.count())
+
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
+
+
+    start = timer()
+    print 'training Naive Bayes with category...'
+
+    #training the Naive Bayes using the category and testing accuracity at category
+    vectSpaceCategoryRDD = tfidfRDD.map(lambda t: LabeledPoint(category.index(t[2]) , SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+    trainingCategoryRDDS, testCategoryRDD = vectSpaceCategoryRDD.randomSplit([8, 2], seed=0L)
+    modelCategory = NaiveBayes.train(trainingCategoryRDDS)
+
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
+
+    start = timer()
+    print 'predicting Naive Bayes with category...'
+
+    predictionAndLabelCategory = testCategoryRDD.map(lambda p : (category[int(modelCategory.predict(p.features))], category[int(p.label)]))
+    acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
     
-    trainingRDD, testRDD = vectSpaceRDD.randomSplit([8, 2], seed=0L)
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
 
-    model = NaiveBayes.train(trainingRDD)
-    predictionAndLabel = testRDD.map(lambda p : (model.predict(p.features), p.label))
+    print 'the accuracy that we have with this two models:'
+    print 'subcategory: %d ' % acuraccySubcategory
+    print 'category: %d ' % acuraccyCategory
 
-    acuraccy = float(predictionAndLabel.filter(lambda (x, v): x == v).count())/float(predictionAndLabel.count())
+    #testing decision trees
+    #n = len(category) 
+    #model = DecisionTree.trainClassifier(trainingCategoryRDDS, numClasses = n, categoricalFeaturesInfo={}, impurity='gini', maxDepth=5, maxBins=32)
+    #predictions = model.predict(testCategoryRDD.map(lambda x: x.features))
+    #predictionAndLabelCategory = testCategoryRDD.map(lambda lp: lp.label).zip(predictions)
+    #ac = float(predictionAndLabelCategory.filter(lambda (x, v): x == v).count())/float(predictionAndLabelCategory.count())
+    #print ac   
 
-    print predictionAndLabel.take(10)
-    print acuraccy
-
-    #Set 2
-    #productRDD2 = sc.parallelize(findProductsByCategory(categs2))
-    #corpusRDD2 = (productRDD2.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower())))
-                             #.map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds])))
-
-    #idfsRDD2 = idfs(corpusRDD2)
-    #idfsRDDBroadcast2 = sc.broadcast(idfsRDD2.collectAsMap())
-    #tfidfRDD2 = corpusRDD2.map(lambda            x: (x[0], tfidf(x[1], idfsRDDBroadcast2.value)))
-    #tfidfRDDBroadcast2 = sc.broadcast(tfidfRDD2.collectAsMap())
-    #produtosTeste = sc.parallelize(tfidfRDD2.take(3))
-    #corpusInvPairsRDD2 = produtosTeste.flatMap( lambda r: ([(x, r[0]) for x in r[1]])).cache()
-
-    #vectSpaceRDD2 = tfidfRDD2.map(lambda t: LabeledPoint(t[0], SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])]))) 
+    #calculating the cosinesimlarity
+    #tfidfRDDBroadcast = sc.broadcast(tfidfRDD.map(lambda x: (x[0], x[1])).collectAsMap())
+    #corpusInvPairsRDD = tfidfRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
 
     #commonTokens = (corpusInvPairsRDD1.join(corpusInvPairsRDD2)
                                       #.map(lambda x: (x[1], x[0]))
@@ -216,5 +264,10 @@ def main(sc):
     
 if __name__ == '__main__':
 	conf = SparkConf().setAppName(APP_NAME)
+                       #.set("spark.executor.memory", "8g")
+                       #.set("spark.driver.memory", "8g")
+                       #.set("spark.python.worker.memory", "8g"))
+
+
 	sc = SparkContext(conf=conf)
 	main(sc)
