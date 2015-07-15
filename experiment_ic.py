@@ -163,7 +163,7 @@ def main(sc):
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
     elap = timer()-start
-    print 'it tooks %f seconds' % elap
+    print 'it tooks %d seconds' % elap
 
     start = timer()
     print 'cleaning corpus...'
@@ -233,8 +233,8 @@ def main(sc):
     print 'it tooks %d seconds' % elap
 
     print 'the accuracy that we have with this two models:'
-    print 'subcategory: %d ' % acuraccySubcategory
-    print 'category: %d ' % acuraccyCategory
+    print 'subcategory: %f ' % acuraccySubcategory
+    print 'category: %f ' % acuraccyCategory
 
     #testing decision trees
     #n = len(category) 
