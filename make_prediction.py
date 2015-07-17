@@ -8,7 +8,9 @@ from nltk.stem import RSLPStemmer
 from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
+
 from Classifier import NaiveBayesClassifier
+from FeatureExtraction import TFIDF
 
 #general variables
 #MongoDB
@@ -150,21 +152,6 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
     return (key, value)
 
 def main(sc):
-
-    '''
-    this program takes a json in and saves the predicted data on MongoDB
-    JSON format:
-    {
-        'iduser': id, 
-        'posts':[
-            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
-            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
-            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
-            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
-        ]
-    }
-
-    '''
 
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
