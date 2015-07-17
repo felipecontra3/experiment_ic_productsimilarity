@@ -147,7 +147,7 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
     return (key, value)
 
 def main(sc):
-    categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
+    categs = ["Computers & Tablets"]#, "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
@@ -164,8 +164,6 @@ def main(sc):
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
 
-    start = timer()
-    
     classifier = NaiveBayesClassifier(sc)
     trainingVectSpaceRDD, testVectSpaceRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
     modelNaiveBayes = classifier.trainModel(trainingVectSpaceRDD, '/dados/teste')
@@ -173,9 +171,6 @@ def main(sc):
     predictionAndLabelCategory = testVectSpaceRDD.map(lambda p : (category[int(modelNaiveBayes.predict(p.features))], category[int(p.label)]))
     acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
     print 'the accuracy of the model is %f' % acuraccyCategory
-
-    elap = timer()-start
-    print 'it tooks %d seconds' % elap
 
 if __name__ == '__main__':
     conf = SparkConf().setAppName(APP_NAME)

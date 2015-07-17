@@ -9,6 +9,7 @@ from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
 from Classifier import NaiveBayesClassifier
+
 #general variables
 #MongoDB
 host = '192.168.33.10'
@@ -62,20 +63,7 @@ def findProductsByCategory(categories):
 		product_list.append((id, description, Category, Subcategory))
 
 	return product_list
-
-def dotprod(a, b):
-    """ Compute dot product
-    Args:
-        a (dictionary): first dictionary of record to value
-        b (dictionary): second dictionary of record to value
-    Returns:
-        dotProd: result of the dot product with the two input dictionaries
-    """
-    dp=0
-    for k in a:
-        if k in b:
-            dp += a[k] * b[k]
-    return  dp
+                   
 
 def tf(tokens):
     """ Compute TF
@@ -122,6 +110,21 @@ def tfidf(tokens, idfs):
     tfIdfDict = {k: v*idfs[k] for k, v in tfs.items()}
     return tfIdfDict
 
+def dotprod(a, b):
+    """ Compute dot product
+    Args:
+        a (dictionary): first dictionary of record to value
+        b (dictionary): second dictionary of record to value
+    Returns:
+        dotProd: result of the dot product with the two input dictionaries
+    """
+    dp=0
+    for k in a:
+        if k in b:
+            dp += a[k] * b[k]
+    return  dp
+
+
 def norm(a):
     """ Compute square root of the dot product
     Args:
@@ -147,30 +150,56 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
     return (key, value)
 
 def main(sc):
-    categs = ["Computers & Tablets"]#, "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
+
+    '''
+    this program takes a json in and saves the predicted data on MongoDB
+    JSON format:
+    {
+        'iduser': id, 
+        'posts':[
+            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
+            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
+            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
+            {'id': id, 'content': post content, 'datetime':posttime, 'media': facebook/twitter},
+        ]
+    }
+
+    '''
+
+    categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
-
+    
     productRDD = sc.parallelize(findProductsByCategory(categs))
-    category = productRDD.map(lambda x: x[2]).distinct().collect()
-
     corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
 						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
 
     tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
+    numTokens = len(tokens)
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
 
-    classifier = NaiveBayesClassifier(sc)
-    trainingVectSpaceRDD, testVectSpaceRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    modelNaiveBayes = classifier.trainModel(trainingVectSpaceRDD, '/dados/teste')
+    #categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
+    category = productRDD.map(lambda x: x[2]).distinct().collect()
 
-    predictionAndLabelCategory = testVectSpaceRDD.map(lambda p : (category[int(modelNaiveBayes.predict(p.features))], category[int(p.label)]))
-    acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
-    print 'the accuracy of the model is %f' % acuraccyCategory
+    #training the Naive Bayes using the subcategory and testing accuracity at category
+    #vectSpaceSubcategoryRDD = tfidfRDD.map(lambda t: LabeledPoint(categoryAndSubcategory.index((t[2], t[3])) , SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+    #trainingSubcategoryRDDS, testSubcategoryRDD = vectSpaceSubcategoryRDD.randomSplit([8, 2], seed=0L)
+    #modelSubcategory = NaiveBayes.train(trainingSubcategoryRDDS)
+
+    #predictionAndLabelSubcategory = testSubcategoryRDD.map(lambda p : (categoryAndSubcategory[int(modelSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
+    #acuraccySubcategory = float(predictionAndLabelSubcategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelSubcategory.count())
+
+    classifier = NaiveBayesClassifier(sc)
+    modelNaiveBayes = classifier.getModel('/dados/teste')
+    sampleForPrediction = sc.parallelize(classifier.createVectSpace(tfidfRDD, category, tokens).take(10))
+    predictionAndLabelCategory = sampleForPrediction.map(lambda p : (category[int(modelNaiveBayes.predict(p.features))], category[int(p.label)]))
+
+    print predictionAndLabelCategory.take(10)
+    #acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
 
 if __name__ == '__main__':
     conf = SparkConf().setAppName(APP_NAME)
