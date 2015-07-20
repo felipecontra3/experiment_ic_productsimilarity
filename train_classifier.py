@@ -8,7 +8,7 @@ from nltk.stem import RSLPStemmer
 from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
-from Classifier import NaiveBayesClassifier
+from Classifier import Classifier
 
 host = '192.168.33.10'
 port = 27017
@@ -107,45 +107,6 @@ def tfidf(tokens, idfs):
     tfIdfDict = {k: v*idfs[k] for k, v in tfs.items()}
     return tfIdfDict
 
-
-def dotprod(a, b):
-    """ Compute dot product
-    Args:
-        a (dictionary): first dictionary of record to value
-        b (dictionary): second dictionary of record to value
-    Returns:
-        dotProd: result of the dot product with the two input dictionaries
-    """
-    dp=0
-    for k in a:
-        if k in b:
-            dp += a[k] * b[k]
-    return  dp
-
-def norm(a):
-    """ Compute square root of the dot product
-    Args:
-        a (dictionary): a dictionary of record to value
-    Returns:
-        norm: a dictionary of tokens to its TF values
-    """
-    return math.sqrt(dotprod(a, a))
-
-def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
-    """ Compute Cosine Similarity using Broadcast variables
-    Args:
-        record: ((ID1, ID2), token), RDDs (Broadcast) with idfs and norm values
-    Returns:
-        pair: ((ID1, ID2), cosine similarity value)
-    """
-    vect1Rec = record[0][0]
-    vect2Rec = record[0][1]
-    tokens = record[1]
-    s = sum((idfsRDD[vect1Rec][i]*idfsRDD2[vect2Rec][i] for i in tokens))
-    value = s/((corpusNorms1[vect1Rec])*(corpusNorms2[vect2Rec]))
-    key = (vect1Rec, vect2Rec)
-    return (key, value)
-
 def main(sc):
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
@@ -153,7 +114,9 @@ def main(sc):
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
+
     category = productRDD.map(lambda x: x[2]).distinct().collect()
+    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
 
     corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
 						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
@@ -166,13 +129,31 @@ def main(sc):
 
     start = timer()
     
-    classifier = NaiveBayesClassifier(sc)
-    trainingVectSpaceRDD, testVectSpaceRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    modelNaiveBayes = classifier.trainModel(trainingVectSpaceRDD, '/dados/teste')
+    classifier = Classifier(sc, 'NaiveBayes')
+    trainingVectSpaceCategory, testVectSpaceCategory = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
+    modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategory, '/dados/category')
 
-    predictionAndLabelCategory = testVectSpaceRDD.map(lambda p : (category[int(modelNaiveBayes.predict(p.features))], category[int(p.label)]))
+    predictionAndLabelCategory = testVectSpaceCategory.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
     acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
-    print 'the accuracy of the model is %f' % acuraccyCategory
+    print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
+
+    #training in this second way just for test
+    #trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
+    #modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceRDD, '/dados/subcategory')
+
+    #predictionAndLabelSubategory = trainingVectSpaceSubcategory.map(lambda p : (categoryAndSubcategory[int(modelNaiveBayesSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
+    #acuraccySubcategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
+    #print 'the accuracy of the Subcategory Naive Bayes model is %f' % acuraccySubcategory
+
+    #test with DecisionTree Model
+    #classifierDT = Classifier(sc, 'DecisionTree')
+    #trainingVectSpaceCategory, testVectSpaceCategory = classifierDT.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
+    #modelDecisionTreeCategory = classifierDT.trainModel(trainingVectSpaceCategory, '/dados/dt')
+
+    #predictions = modelDecisionTreeCategory.predict(testVectSpaceCategory.map(lambda x: x.features))
+    #predictionAndLabelCategory = testVectSpaceCategory.map(lambda lp: lp.label).zip(predictions)
+    #acuraccyDecisionTree = float(predictionAndLabelCategory.filter(lambda (x, v): x == v).count())/float(predictionAndLabelCategory.count())   
+    #print 'the accuracy of the Decision Tree model is %f' % acuraccyDecisionTree
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
