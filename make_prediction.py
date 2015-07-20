@@ -8,9 +8,7 @@ from nltk.stem import RSLPStemmer
 from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
-
-from Classifier import NaiveBayesClassifier
-from FeatureExtraction import TFIDF
+from Classifier import Classifier
 
 #general variables
 #MongoDB
@@ -152,41 +150,44 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
     return (key, value)
 
 def main(sc):
+    start = timer()
+
+    post = [(u'post1', u"I love computers! i would like to buy an asus notebook.", u'Post', u'Post')]
+    postRDD = sc.parallelize(post)
 
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
-    
-    productRDD = sc.parallelize(findProductsByCategory(categs))
-    corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
 
-    tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
-    numTokens = len(tokens)
+    productRDD = sc.parallelize(findProductsByCategory(categs))
+
+    productAndPostRDD = productRDD.union(postRDD)
+    corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post1')
+    
+    tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
+    
+    classifier = Classifier(sc, 'NaiveBayes')
+    modelNaiveBayesCategory = classifier.getModel('/dados/models/naivebayes/category')
 
-    #categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
-    category = productRDD.map(lambda x: x[2]).distinct().collect()
+    postsSpaceVectorRDD = classifier.createVectSpacePost(tfidfPostsRDD, tokens)
+    predictionCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
+    
+    print predictionCategoryRDD.take(1)[0]
+    print category[2]   
 
-    #training the Naive Bayes using the subcategory and testing accuracity at category
-    #vectSpaceSubcategoryRDD = tfidfRDD.map(lambda t: LabeledPoint(categoryAndSubcategory.index((t[2], t[3])) , SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
-    #trainingSubcategoryRDDS, testSubcategoryRDD = vectSpaceSubcategoryRDD.randomSplit([8, 2], seed=0L)
-    #modelSubcategory = NaiveBayes.train(trainingSubcategoryRDDS)
-
-    #predictionAndLabelSubcategory = testSubcategoryRDD.map(lambda p : (categoryAndSubcategory[int(modelSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
-    #acuraccySubcategory = float(predictionAndLabelSubcategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelSubcategory.count())
-
-    classifier = NaiveBayesClassifier(sc)
-    modelNaiveBayes = classifier.getModel('/dados/teste')
-    sampleForPrediction = sc.parallelize(classifier.createVectSpace(tfidfRDD, category, tokens).take(10))
-    predictionAndLabelCategory = sampleForPrediction.map(lambda p : (category[int(modelNaiveBayes.predict(p.features))], category[int(p.label)]))
-
-    print predictionAndLabelCategory.take(10)
+    #predictionAndLabelCategory = testVectSpaceCategory.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
     #acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
+    #print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
+
+    elap = timer()-start
+    print 'it tooks %d seconds' % elap
 
 if __name__ == '__main__':
     conf = SparkConf().setAppName(APP_NAME)
