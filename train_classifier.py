@@ -9,17 +9,15 @@ from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
 from Classifier import NaiveBayesClassifier
-#general variables
-#MongoDB
+
 host = '192.168.33.10'
 port = 27017
 username = ''
 password = ''
 database = 'recsysdb'
 
-APP_NAME = 'Recomender System'
+APP_NAME = 'Recomender System - Spark Job'
 
-#connecting to MongoDB
 def createMongoDBConnection(host, port, username, password, db):
 	""" create connection with MongoDB
     Args:
@@ -63,20 +61,6 @@ def findProductsByCategory(categories):
 
 	return product_list
 
-def dotprod(a, b):
-    """ Compute dot product
-    Args:
-        a (dictionary): first dictionary of record to value
-        b (dictionary): second dictionary of record to value
-    Returns:
-        dotProd: result of the dot product with the two input dictionaries
-    """
-    dp=0
-    for k in a:
-        if k in b:
-            dp += a[k] * b[k]
-    return  dp
-
 def tf(tokens):
     """ Compute TF
     Args:
@@ -103,6 +87,7 @@ def idfs(corpus):
     Returns:
         RDD: a RDD of (token, IDF value)
     """
+    import math
     N = corpus.count()
     uniqueTokens = corpus.flatMap(lambda doc: set(doc[1]))
     tokenCountPairTuple = uniqueTokens.map(lambda t: (t, 1))
@@ -121,6 +106,21 @@ def tfidf(tokens, idfs):
     tfs = tf(tokens)
     tfIdfDict = {k: v*idfs[k] for k, v in tfs.items()}
     return tfIdfDict
+
+
+def dotprod(a, b):
+    """ Compute dot product
+    Args:
+        a (dictionary): first dictionary of record to value
+        b (dictionary): second dictionary of record to value
+    Returns:
+        dotProd: result of the dot product with the two input dictionaries
+    """
+    dp=0
+    for k in a:
+        if k in b:
+            dp += a[k] * b[k]
+    return  dp
 
 def norm(a):
     """ Compute square root of the dot product
