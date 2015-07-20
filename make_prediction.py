@@ -152,8 +152,15 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
 def main(sc):
     start = timer()
 
-    post = [(u'post1', u"I love computers! i would like to buy an asus notebook.", u'Post', u'Post')]
-    postRDD = sc.parallelize(post)
+    posts = [
+                (u'post1', u"I love computers! i would like to buy an asus notebook.", u'Post', u'Post'),
+                (u'post2', u"My tablet is not working anymore, i need to buy a new one", u'Post', u'Post'),
+                (u'post3', u"I love to watch TV on saturday nights!", u'Post', u'Post'),
+                (u'post4', u"i love to watch netflix on my smart tv", u'Post', u'Post')
+            ]
+
+
+    postRDD = sc.parallelize(posts)
 
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
@@ -166,25 +173,35 @@ def main(sc):
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
                            .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
 
+    corpusRDD_ = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
+
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
-    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post1')
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post4')
     
-    tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
-    
+    tokens = corpusRDD_.flatMap(lambda x: x[1]).distinct().collect()
+
     classifier = Classifier(sc, 'NaiveBayes')
+    classifierDT = Classifier(sc, 'DecisionTree')
+
     modelNaiveBayesCategory = classifier.getModel('/dados/models/naivebayes/category')
+    modelNaiveBayesSubcategory = classifier.getModel('/dados/models/naivebayes/subcategory')
+    modelDecisionTree = classifierDT.getModel('/dados/models/dt/category')
 
     postsSpaceVectorRDD = classifier.createVectSpacePost(tfidfPostsRDD, tokens)
-    predictionCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
-    
-    print predictionCategoryRDD.take(1)[0]
-    print category[2]   
 
-    #predictionAndLabelCategory = testVectSpaceCategory.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
-    #acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
-    #print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
+    predictionCategoryNaiveBayesCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
+    predictionCategoryNaiveBayesSubcategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesSubcategory.predict(p))
+    predictions = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
+    
+    category = productRDD.map(lambda x: x[2]).distinct().collect()
+    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
+
+    print 'NB Category %d' % predictionCategoryNaiveBayesCategoryRDD.take(1)[0]
+    print 'NB Subategory %d' % predictionCategoryNaiveBayesSubcategoryRDD.take(1)[0]
+    print 'DT Category %d' % predictions.take(1)[0]
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
