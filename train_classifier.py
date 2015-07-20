@@ -125,30 +125,29 @@ def main(sc):
     start = timer()
     tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
     category = productRDD.map(lambda x: x[2]).distinct().collect()
-    
+
+    #de alguma forma eu preciso guardar a lista de categorias para poder utilizar quando for predizer depois
     classifier = Classifier(sc, 'NaiveBayes')
     trainingVectSpaceCategoryRDD, testVectSpaceCategoryRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
     modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategoryRDD, '/dados/models/naivebayes/category')
 
-    predictionAndLabelCategoryRDD = testVectSpaceCategoryRDD.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
-    acuraccyCategory = float(predictionAndLabelCategoryRDD.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategoryRDD.count())
-    print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
-
-    print category
+    #predictionAndLabelCategoryRDD = testVectSpaceCategoryRDD.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
+    #acuraccyCategory = float(predictionAndLabelCategoryRDD.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategoryRDD.count())
+    #print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
 
     #training in this second way just for test
-    #categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
-    #trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
-    #modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceRDD, '/dados/subcategory')
+    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
+    trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
+    modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceSubcategory, '/dados/models/naivebayes/subcategory')
 
-    #predictionAndLabelSubategory = trainingVectSpaceSubcategory.map(lambda p : (categoryAndSubcategory[int(modelNaiveBayesSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
+    #predictionAndLabelSubategory = testVectSpaceSubcategory.map(lambda p : (categoryAndSubcategory[int(modelNaiveBayesSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
     #acuraccySubcategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
     #print 'the accuracy of the Subcategory Naive Bayes model is %f' % acuraccySubcategory
 
     #test with DecisionTree Model
-    #classifierDT = Classifier(sc, 'DecisionTree')
-    #trainingVectSpaceCategory, testVectSpaceCategory = classifierDT.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    #modelDecisionTreeCategory = classifierDT.trainModel(trainingVectSpaceCategory, '/dados/dt')
+    classifierDT = Classifier(sc, 'DecisionTree')
+    trainingVectSpaceCategory, testVectSpaceCategory = classifierDT.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
+    modelDecisionTreeCategory = classifierDT.trainModel(trainingVectSpaceCategory, '/dados/models/dt/category')
 
     #predictions = modelDecisionTreeCategory.predict(testVectSpaceCategory.map(lambda x: x.features))
     #predictionAndLabelCategory = testVectSpaceCategory.map(lambda lp: lp.label).zip(predictions)
@@ -157,6 +156,7 @@ def main(sc):
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
+    print category
 
 if __name__ == '__main__':
     conf = SparkConf().setAppName(APP_NAME)
