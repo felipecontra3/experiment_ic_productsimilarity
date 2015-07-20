@@ -114,30 +114,30 @@ def main(sc):
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
-
-    category = productRDD.map(lambda x: x[2]).distinct().collect()
-    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
-
     corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
 						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
 
-    tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
-
+    
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
 
     start = timer()
+    tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
+    category = productRDD.map(lambda x: x[2]).distinct().collect()
     
     classifier = Classifier(sc, 'NaiveBayes')
-    trainingVectSpaceCategory, testVectSpaceCategory = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategory, '/dados/category')
+    trainingVectSpaceCategoryRDD, testVectSpaceCategoryRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
+    modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategoryRDD, '/dados/models/naivebayes/category')
 
-    predictionAndLabelCategory = testVectSpaceCategory.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
-    acuraccyCategory = float(predictionAndLabelCategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategory.count())
+    predictionAndLabelCategoryRDD = testVectSpaceCategoryRDD.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
+    acuraccyCategory = float(predictionAndLabelCategoryRDD.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategoryRDD.count())
     print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
 
+    print category
+
     #training in this second way just for test
+    #categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
     #trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
     #modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceRDD, '/dados/subcategory')
 
