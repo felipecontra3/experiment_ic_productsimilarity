@@ -64,6 +64,29 @@ def findProductsByCategory(categories):
 
 	return product_list
                    
+def getTokensAndCategories():  
+    db = createMongoDBConnection(host, port, username, password, database)
+    model = db.model
+    
+    tokens_dict = db.model.find({"_type": "token"}).limit(1).next()
+    del tokens_dict['_type']
+    del tokens_dict['_id']
+    del tokens_dict['_datetime']
+    tokens_list = [None] * (max(tokens_dict.values()) + 1)
+
+    for key, value in tokens_dict.iteritems():
+        tokens_list[value] = key
+
+    categories_dict = db.model.find({"_type": "category"}).limit(1).next()
+    del categories_dict['_type']
+    del categories_dict['_id']
+    del categories_dict['_datetime']
+    categories_list = [None] * (max(categories_dict.values()) + 1)
+
+    for key, value in categories_dict.iteritems():
+        categories_list[value] = key
+
+    return tokens_list, categories_list
 
 def tf(tokens):
     """ Compute TF
@@ -153,14 +176,59 @@ def main(sc):
     start = timer()
 
     posts = [
-                (u'post1', u"I love computers! i would like to buy an asus notebook.", u'Post', u'Post'),
-                (u'post2', u"My tablet is not working anymore, i need to buy a new one", u'Post', u'Post'),
-                (u'post3', u"I love to watch TV on saturday nights!", u'Post', u'Post'),
-                (u'post4', u"i love to watch netflix on my smart tv", u'Post', u'Post')
+                (u'post498', u'Reading the tweets coming out of Iran... The whole thing is terrifying and incredibly sad...', u'post', u'post'),
+                (u'post497', u'Trouble in Iran, I see. Hmm. Iran. Iran so far away. #flockofseagullsweregeopoliticallycorrect', u'post', u'post'),
+                (u'post496', u'Ahhh... back in a *real* text editing environment. I &lt;3 LaTeX.', u'post', u'post'),
+                (u'post495', u'On that note, I hate Word. I hate Pages. I hate LaTeX. There, I said it. I hate LaTeX. All you TEXN3RDS can come kill me now.', u'post', u'post'),
+                (u'post494', u'Ask Programming: LaTeX or InDesign?: submitted by calcio1 [link] [1 comment] http://tinyurl.com/myfmf7', u'post', u'post'),
+                (u'post493', u'After using LaTeX a lot, any other typeset mathematics just looks hideous.', u'post', u'post'),
+                (u'post492', u'using Linux and loving it - so much nicer than windows... Looking forward to using the wysiwyg latex editor!', u'post', u'post'),
+                (u'post491', u'I just created my first LaTeX file from scratch. That didnt work out very well. (See @amandabittner , its a great time waster)', u'post', u'post'),
+                (u'post490', u'i lam so in love with Bobby Flay... he is my favorite. RT @terrysimpson: @bflay you need a place in Phoenix. We have great peppers here!', u'post', u'post'),
+                (u'post489', u'@johncmayer is Bobby Flay joining you?', u'post', u'post'),
+                (u'post488', u'getting ready to test out some burger receipes this weekend. Bobby Flay has some great receipes to try. Thanks Bobby.', u'post', u'post'),
+                (u'post487', u'Twitter Stock buzz: $AAPL $ES_F $SPY $SPX $PALM  (updated: 12:00 PM)', u'post', u'post'),
+                (u'post486', u'Monday already. Iran may implode. Kitchen is a disaster. @annagoss seems happy. @sebulous had a nice weekend and @goldpanda is great. whoop.', u'post', u'post'),
+                (u'post485', u'Shits hitting the fan in Iran...craziness indeed #iranelection', u'post', u'post'),
+                (u'post484', u'How to Track Iran with Social Media: http://bit.ly/2BoqU', u'post', u'post'),
+                (u'post483', u'7 hours. 7 hours of inkscape crashing, normally solid as a rock. 7 hours of LaTeX complaining at the slightest thing. I cant take any more.', u'post', u'post'),
+                (u'post482', u'@Iheartseverus we love you too and dont want you to die!!!!!!  Latex = the devil', u'post', u'post'),
+                (u'post481', u'Fighting with LaTex. Again...', u'post', u'post'),
+                (u'post480', u'My dad was in NY for a day, we ate at MESA grill last night and met Bobby Flay. So much fun, except I completely lost my voice today.', u'post', u'post'),
+                (u'post479', u'cant wait for the great american food and music festival at shoreline tomorrow.  mmm...katz pastrami and bobby flay. yes please.', u'post', u'post'),
+                (u'post478', u'Gonna go see Bobby Flay 2moro at Shoreline. Eat and drink. Gonna be good.', u'post', u'post'),
+                (u'post477', u'Excited about seeing Bobby Flay and Guy Fieri tomorrow at the Great American Food &amp; Music Fest!', u'post', u'post'),
+                (u'post476', u'has a date with bobby flay and gut fieri from food network', u'post', u'post'),
+                (u'post475', u'dearest @google, you rich bastards! the VISA card you sent me doesnt work. why screw a little guy like me?', u'post', u'post'),
+                (u'post474', u'Off to the bank to get my new visa platinum card', u'post', u'post'),
+                (u'post473', u'@ruby_gem My primary debit card is Visa Electron.', u'post', u'post'),
+                (u'post472', u'I have a google addiction. Thank you for pointing that out, @annamartin123. Hahaha.', u'post', u'post'),
+                (u'post471', u'The #Kindle2 seems the best eReader, but will it work in the UK and where can I get one?', u'post', u'post'),
+                (u'post470', u'@cwong08 I have a Kindle2 (&amp; Sony PRS-500). Like it! Physical device feels good. Font is nice. Pg turns are snappy enuf. UI a little klunky.', u'post', u'post'),
+                (u'post469', u'Man I kinda dislike Apple right now. Case in point: the iPhone 3GS. Wish there was a video recorder app. Please?? http://bit.ly/DZm1T', u'post', u'post'),
+                (u'post468', u'@sklososky Thanks so much!!! ...from one of your *very* happy Kindle2 winners ; ) I was so surprised, fabulous. Thank you! Best, Kathleen', u'post', u'post'),
+                (u'post467', u'Missed this insight-filled May column: One smart guy looking closely at why hes impressed with Kindle2 http://bit.ly/i0peY @wroush', u'post', u'post'),(u'post466', u'I hope the girl at work  buys my Kindle2', u'post', u'post'),
+                (u'post465', u'looks like summize has gone down. too many tweets from WWDC perhaps?', u'post', u'post'),
+                (u'post464', u'GOT MY WAVE SANDBOX INVITE! Extra excited! Too bad I have class now... but Ill play with it soon enough! #io2009 #wave', u'post', u'post'),
+                (u'post463', u'Today is a good day to dislike AT&amp;T. Vote out of office indeed, @danielpunkass', u'post', u'post'),
+                (u'post462', u'Fuzzball is more fun than AT&amp;T ;P http://fuzz-ball.com/twitter', u'post', u'post'),
+                (u'post461', u'@Plip Where did you read about tethering support Phil?  Just AT&amp;T or will O2 be joining in?', u'post', u'post'),
+                (u'post460', u'@freitasm oh I see. I thought AT&amp;T were 900MHz WCDMA?', u'post', u'post'),
+                (u'post459', u'@sheridanmarfil - its not so much my obsession with cell phones, but the iphone!  im a slave to at&amp;t forever because of it. :)', u'post', u'post'),
+                (u'post458', u'Although todays keynote rocked, for every great announcement, AT&amp;T shit on us just a little bit more.', u'post', u'post'),(u'post457', u'I love my Kindle2. No more stacks of books to trip over on the way to the loo.', u'post', u'post'),
+                (u'post456', u'I still love my Kindle2 but reading The New York Times on it does not feel natural. I miss the Bloomingdale ads.', u'post', u'post'),
+                (u'post455', u'Id say some sports writers are idiots for saying Roger Federer is one of the best ever in Tennis.  Roger Federer is THE best ever in Tennis', u'post', u'post'),
+                (u'post454', u'I cant watch TV without a Tivo.  And after all these years, the Time/Warner DVR  STILL sucks. http://www.davehitt.com/march03/twdvr.html', u'post', u'post'),
+                (u'post453', u'I mean, Im down with Notre Dame if I have to.  Its a good school, Id be closer to Dan, Id enjoy it.', u'post', u'post'),
+                (u'post452', u'reading Michael Palin book, The Python Years...great book. I also recommend Warren Buffet &amp; Nelson Mandelas bio', u'post', u'post'),
+                (u'post451', u'Im truly braindead.  I couldnt come up with Warren Buffets name to save my soul', u'post', u'post'),
+                (u'post450', u'SUPER INVESTORS: A great weekend read here from Warren Buffet. Oldie, but a goodie. http://tinyurl.com/oqxgga', u'post', u'post')
             ]
 
 
-    postRDD = sc.parallelize(posts)
+    postsRDD = sc.parallelize(posts)
+
+    tokens, category = getTokensAndCategories()
 
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
 
@@ -169,19 +237,15 @@ def main(sc):
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
 
-    productAndPostRDD = productRDD.union(postRDD)
+    productAndPostRDD = productRDD.union(postsRDD)
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
-
-    corpusRDD_ = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds and x in tokens], s[2], s[3] )))
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
-    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post4')
-    
-    tokens = corpusRDD_.flatMap(lambda x: x[1]).distinct().collect()
+
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post471')    
 
     classifier = Classifier(sc, 'NaiveBayes')
     classifierDT = Classifier(sc, 'DecisionTree')
@@ -194,14 +258,13 @@ def main(sc):
 
     predictionCategoryNaiveBayesCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
     predictionCategoryNaiveBayesSubcategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesSubcategory.predict(p))
-    predictions = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
+    predictionCategoryDecisionTreeRDD = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
     
-    category = productRDD.map(lambda x: x[2]).distinct().collect()
     categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
 
     print 'NB Category %d' % predictionCategoryNaiveBayesCategoryRDD.take(1)[0]
     print 'NB Subategory %d' % predictionCategoryNaiveBayesSubcategoryRDD.take(1)[0]
-    print 'DT Category %d' % predictions.take(1)[0]
+    print 'DT Category %d' % predictionCategoryDecisionTreeRDD.take(1)[0]
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
