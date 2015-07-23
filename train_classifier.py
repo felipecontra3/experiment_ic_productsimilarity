@@ -61,7 +61,7 @@ def findProductsByCategory(categories):
 
 	return product_list
 
-def insertTokensAndCategories(tokens, category):
+def insertTokensAndCategories(tokens, category, categoryAndSubcategory):
     db = createMongoDBConnection(host, port, username, password, database)
 
     modelCollection = db.model
@@ -85,6 +85,16 @@ def insertTokensAndCategories(tokens, category):
     i = 0
     for c in category:
         document_mongo[c] = i
+        i = i + 1 
+
+    modelCollection.insert_one(document_mongo)
+
+    document_mongo =  dict()
+    document_mongo['_type'] = 'category and subcategory'
+    document_mongo['_datetime'] = datetime.datetime.utcnow()
+    i = 0
+    for c in categoryAndSubcategory:
+        document_mongo[c[0]+","+c[1]] = i
         i = i + 1 
 
     modelCollection.insert_one(document_mongo)
@@ -152,9 +162,12 @@ def main(sc):
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
 
     category = productRDD.map(lambda x: x[2]).distinct().collect()
+    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
     tokens = corpusRDD.flatMap(lambda x: x[1]).distinct().collect()
 
-    insertTokensAndCategories(tokens, category)
+
+    insertTokensAndCategories(tokens, category, categoryAndSubcategory)
+    sys.exit(0)
 
     classifier = Classifier(sc, 'NaiveBayes')
     trainingVectSpaceCategoryRDD, testVectSpaceCategoryRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
@@ -165,7 +178,7 @@ def main(sc):
     print 'the accuracy of the Category Naive Bayes model is %f' % acuraccyCategory
 
     #training in this second way just for test
-    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
+    
     trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
     modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceSubcategory, '/dados/models/naivebayes/subcategory')
 
