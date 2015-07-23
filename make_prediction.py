@@ -128,6 +128,7 @@ def idfs(corpus):
     uniqueTokens = corpus.flatMap(lambda doc: set(doc[1]))
     tokenCountPairTuple = uniqueTokens.map(lambda t: (t, 1))
     tokenSumPairTuple = tokenCountPairTuple.reduceByKey(lambda a,b: a+b)
+
     return tokenSumPairTuple.map(lambda (k, v): (k, math.log(1.0*N/v)))    
 
 
@@ -235,26 +236,25 @@ def main(sc):
                 (u'post450', u'SUPER INVESTORS: A great weekend read here from Warren Buffet. Oldie, but a goodie. http://tinyurl.com/oqxgga', u'post', u'post')
             ]
 
-
     postsRDD = sc.parallelize(posts)
     tokens, category, categoryAndSubcategory = getTokensAndCategories()
-
-    sys.exit(0)
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
-
-    productAndPostRDD = productRDD.union(postsRDD)
+    #productAndPostRDD = productRDD.union(postsRDD)
+    productAndPostRDD = sc.parallelize(productRDD.collect()+ postsRDD.collect())
+    
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds and x in tokens], s[2], s[3] )))
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] ))
+                           .map(lambda s: (s[0], [x for x in s[1] if x in tokens], s[2], s[3] ))
+                           .cache())
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
-
-    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post471')    
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[0]=='post452')    
 
     classifier = Classifier(sc, 'NaiveBayes')
     classifierDT = Classifier(sc, 'DecisionTree')
@@ -269,8 +269,6 @@ def main(sc):
     predictionCategoryNaiveBayesSubcategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesSubcategory.predict(p))
     predictionCategoryDecisionTreeRDD = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
     
-    categoryAndSubcategory = productRDD.map(lambda x: (x[2], x[3])).distinct().collect()
-
     print 'NB Category %d' % predictionCategoryNaiveBayesCategoryRDD.take(1)[0]
     print 'NB Subategory %d' % predictionCategoryNaiveBayesSubcategoryRDD.take(1)[0]
     print 'DT Category %d' % predictionCategoryDecisionTreeRDD.take(1)[0]
