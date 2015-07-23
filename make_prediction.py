@@ -86,7 +86,17 @@ def getTokensAndCategories():
     for key, value in categories_dict.iteritems():
         categories_list[value] = key
 
-    return tokens_list, categories_list
+    categories_and_subcategories_dict = db.model.find({"_type": "category and subcategory"}).limit(1).next()
+    del categories_and_subcategories_dict['_type']
+    del categories_and_subcategories_dict['_id']
+    del categories_and_subcategories_dict['_datetime']
+    categories_and_subcategories_list = [None] * (max(categories_and_subcategories_dict.values()) + 1)
+
+    for key, value in categories_and_subcategories_dict.iteritems():
+        pre_string = key.split(",")
+        categories_and_subcategories_list[value] = (pre_string[0], pre_string[1])
+
+    return tokens_list, categories_list, categories_and_subcategories_list
 
 def tf(tokens):
     """ Compute TF
@@ -227,11 +237,10 @@ def main(sc):
 
 
     postsRDD = sc.parallelize(posts)
+    tokens, category, categoryAndSubcategory = getTokensAndCategories()
 
-    tokens, category = getTokensAndCategories()
-
+    sys.exit(0)
     categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
-
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
