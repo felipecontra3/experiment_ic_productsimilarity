@@ -1,5 +1,6 @@
 import sys, os, math
 from timeit import default_timer as timer
+import itertools
 import re, unicodedata
 import nltk
 from nltk import word_tokenize
@@ -19,7 +20,7 @@ password = ''
 database = 'recsysdb'
 
 APP_NAME = 'Recomender System'
-numRecommendationsPerPost = 5
+threshold  = 0.1
 
 #connecting to MongoDB
 def createMongoDBConnection(host, port, username, password, db):
@@ -98,6 +99,30 @@ def getTokensAndCategories():
         categories_and_subcategories_list[value] = (pre_string[0], pre_string[1])
 
     return tokens_list, categories_list, categories_and_subcategories_list
+
+def insertSuggestions(suggestions_list):
+
+    suggestions_to_insert = []
+    for post in suggestions_list:
+        suggestions_dict = dict()
+        suggestions_dict['iduser'] = iduser
+        suggestions_dict['idpost'] = post[0]
+        suggestions_dict['post'] = post[1][1]
+        suggestions_dict['suggetions'] = []
+
+        for product in post[1][0]:
+            product_dict = dict()
+            product_dict['produto'] = product[0]
+            product_dict['cosine_similarity'] = product[1]
+            suggestions_dict['suggetions'].append(product_dict)
+
+        suggestions_to_insert.append(suggestions_dict)
+
+    db = createMongoDBConnection(host, port, username, password, database)
+    db.suggestions.insert_many(suggestions_to_insert)
+    
+    return True
+
 
 def tf(tokens):
     """ Compute TF
@@ -189,8 +214,8 @@ def main(sc):
 
     iduser = 1
     posts = [
-                (u'post1', u'I love computers! i would like to buy an asus notebook.', u'post', u'post'),
-                (u'post2', u'My tablet is not working anymore, i need to buy a new one', u'post', u'post')
+                (u'post1', u'I love computers! i would like to buy an asus notebook.', u'Post', u'Twitter'),
+                (u'post2', u'My tablet is not working anymore, i need to buy a new one', u'Post', u'Facebook')
             ]
 
     postsRDD = sc.parallelize(posts)
@@ -205,7 +230,7 @@ def main(sc):
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
                            .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] ))
                            .map(lambda s: (s[0], [x for x in s[1] if x in tokens], s[2], s[3]))
-                           .filter(lambda x: len(x[1]) >= 10 or x[2] == u'post')
+                           .filter(lambda x: len(x[1]) >= 10 or x[2] == u'Post')
                            .cache())
 
     idfsRDD = idfs(corpusRDD)
@@ -235,7 +260,7 @@ def main(sc):
 
 
 
-    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[2]=='post').cache()
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[2]=='Post').cache()
     corpusInvPairsPostsRDD = tfidfPostsRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
 
     commonTokens = (corpusInvPairsProductsRDD.join(corpusInvPairsPostsRDD)
@@ -256,14 +281,16 @@ def main(sc):
                             .cache())
 
     suggestionsRDD = (similaritiesRDD
-                        .map(lambda x: (x[0][1], x[0][0], x[1]))
-                        .filter(lambda x: x[2]>0.05))
+                        .map(lambda x: (x[0][1], (x[0][0], x[1])))
+                        .filter(lambda x: x[1][1]>threshold)
+                        .groupByKey())
+    suggestionsRDD = suggestionsRDD.join(postsRDD)
+    suggestionsRDD = suggestionsRDD.mapValues(list)
 
-    #suggestionsRDD = suggestionsRDD.map(lambda x: (x[0], x[1])).reduceByKey(lambda a,b: a+','+b)
-    #db = createMongoDBConnection(host, port, username, password, database)
-    #db.predictions 
-    #print suggestionsRDD.collect()
-
+    if insertSuggestions(suggestionsRDD.collect()):
+        print "Processo finalizado."
+    else:
+        print "Ocorreu algum erro."
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
