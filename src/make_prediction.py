@@ -100,17 +100,18 @@ def getTokensAndCategories():
 
     return tokens_list, categories_list, categories_and_subcategories_list
 
-def insertSuggestions(suggestions_list):
+def insertSuggestions(suggestions_list, iduser):
 
     suggestions_to_insert = []
     for post in suggestions_list:
         suggestions_dict = dict()
         suggestions_dict['iduser'] = iduser
         suggestions_dict['idpost'] = post[0]
-        suggestions_dict['post'] = post[1][1]
+        suggestions_dict['post'] = post[1][0][1]
+        suggestions_dict['resource'] = post[1][1]
         suggestions_dict['suggetions'] = []
 
-        for product in post[1][0]:
+        for product in post[1][0][0]:
             product_dict = dict()
             product_dict['produto'] = product[0]
             product_dict['cosine_similarity'] = product[1]
@@ -120,7 +121,7 @@ def insertSuggestions(suggestions_list):
 
     db = createMongoDBConnection(host, port, username, password, database)
     db.suggestions.insert_many(suggestions_to_insert)
-    
+
     return True
 
 
@@ -215,7 +216,11 @@ def main(sc):
     iduser = 1
     posts = [
                 (u'post1', u'I love computers! i would like to buy an asus notebook.', u'Post', u'Twitter'),
-                (u'post2', u'My tablet is not working anymore, i need to buy a new one', u'Post', u'Facebook')
+                (u'post2', u'My tablet is not working anymore, i need to buy a new one', u'Post', u'Facebook'),
+                (u'post3', u'I love to watch TV on saturday nights! ', u'Post', u'Twitter'),
+                (u'post4', u'i love to watch netflix on my smart tv', u'Post', u'Twitter'),
+                (u'post5', u'The #Kindle2 seems the best eReader, but will it work in the UK and where can I get one?', u'Post', u'Facebook'),
+                (u'post6', u'I still love my Kindle2 but reading The New York Times on it does not feel natural. I miss the Bloomingdale ads.', u'Post', u'Facebook')
             ]
 
     postsRDD = sc.parallelize(posts)
@@ -285,9 +290,10 @@ def main(sc):
                         .filter(lambda x: x[1][1]>threshold)
                         .groupByKey())
     suggestionsRDD = suggestionsRDD.join(postsRDD)
+    suggestionsRDD = suggestionsRDD.join(postsRDD.map(lambda x: (x[0], x[3])))
     suggestionsRDD = suggestionsRDD.mapValues(list)
 
-    if insertSuggestions(suggestionsRDD.collect()):
+    if insertSuggestions(suggestionsRDD.collect(), iduser):
         print "Processo finalizado."
     else:
         print "Ocorreu algum erro."
