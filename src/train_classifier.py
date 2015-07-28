@@ -1,14 +1,14 @@
 import sys, os, math, datetime
 from timeit import default_timer as timer
 import re, unicodedata
-import nltk
+from nltk.tag import pos_tag 
 from nltk import word_tokenize
 from nltk.stem.porter import *
 from nltk.stem import RSLPStemmer
 from nltk.corpus import stopwords
 from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
-from Classifier import Classifier
+from classes.Classifier import Classifier
 
 host = '192.168.33.10'
 port = 27017
@@ -155,7 +155,8 @@ def main(sc):
 
     productRDD = sc.parallelize(findProductsByCategory(categs))
     corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] )))
+						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] ))
+                           .map(lambda s: (s[0], [x[0] for x in pos_tag(s[1]) if x[1] == 'NN' or x[1] == 'NNP'], s[2], s[3])))
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
@@ -170,7 +171,7 @@ def main(sc):
     
     classifier = Classifier(sc, 'NaiveBayes')
     trainingVectSpaceCategoryRDD, testVectSpaceCategoryRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategoryRDD, '/dados/models/naivebayes/category')
+    modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategoryRDD, '/dados/models/naivebayes/category_new')
 
     predictionAndLabelCategoryRDD = testVectSpaceCategoryRDD.map(lambda p : (category[int(modelNaiveBayesCategory.predict(p.features))], category[int(p.label)]))
     acuraccyCategory = float(predictionAndLabelCategoryRDD.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelCategoryRDD.count())
@@ -179,7 +180,7 @@ def main(sc):
     #training in this second way just for test
     
     trainingVectSpaceSubcategory, testVectSpaceSubcategory = classifier.createVectSpaceSubcategory(tfidfRDD, categoryAndSubcategory, tokens).randomSplit([8, 2], seed=0L)
-    modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceSubcategory, '/dados/models/naivebayes/subcategory')
+    modelNaiveBayesSubcategory = classifier.trainModel(trainingVectSpaceSubcategory, '/dados/models/naivebayes/subcategory_new')
 
     predictionAndLabelSubcategory = testVectSpaceSubcategory.map(lambda p : (categoryAndSubcategory[int(modelNaiveBayesSubcategory.predict(p.features))], categoryAndSubcategory[int(p.label)]))
     acuraccySubcategory = float(predictionAndLabelSubcategory.filter(lambda (x, v): x[0] == v[0]).count())/float(predictionAndLabelSubcategory.count())
@@ -188,7 +189,7 @@ def main(sc):
     #test with DecisionTree Model
     classifierDT = Classifier(sc, 'DecisionTree')
     trainingVectSpaceCategory, testVectSpaceCategory = classifierDT.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
-    modelDecisionTreeCategory = classifierDT.trainModel(trainingVectSpaceCategory, '/dados/models/dt/category')
+    modelDecisionTreeCategory = classifierDT.trainModel(trainingVectSpaceCategory, '/dados/models/dt/category_new')
 
     predictions = modelDecisionTreeCategory.predict(testVectSpaceCategory.map(lambda x: x.features))
     predictionAndLabelCategory = testVectSpaceCategory.map(lambda lp: lp.label).zip(predictions)

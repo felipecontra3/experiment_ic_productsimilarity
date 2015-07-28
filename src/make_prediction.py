@@ -1,6 +1,6 @@
 import sys, os, math, re, unicodedata
 from timeit import default_timer as timer
-import nltk
+from nltk.tag import pos_tag 
 from nltk import word_tokenize
 from nltk.stem.porter import *
 from nltk.stem import RSLPStemmer
@@ -237,13 +237,17 @@ def main(sc):
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
     productRDD = sc.parallelize(findProductsByCategory(category))
+
     productAndPostRDD = productRDD.union(postsRDD)
     
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] ))
-                           .map(lambda s: (s[0], [x for x in s[1] if x in tokens], s[2], s[3]))
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds and x in tokens], s[2], s[3]))
+                           .map(lambda s: (s[0], [x[0] for x in pos_tag(s[1]) if x[1] == 'NN' or x[1] == 'NNP'], s[2], s[3]))
                            .filter(lambda x: len(x[1]) >= 10 or x[2] == u'Post')
                            .cache())
+
+    print corpusRDD.take(1)
+    sys.exit(0)
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
