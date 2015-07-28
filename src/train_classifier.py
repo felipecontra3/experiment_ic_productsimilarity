@@ -167,8 +167,7 @@ def main(sc):
 
 
     insertTokensAndCategories(tokens, category, categoryAndSubcategory)
-    sys.exit(0)
-
+    
     classifier = Classifier(sc, 'NaiveBayes')
     trainingVectSpaceCategoryRDD, testVectSpaceCategoryRDD = classifier.createVectSpaceCategory(tfidfRDD, category, tokens).randomSplit([8, 2], seed=0L)
     modelNaiveBayesCategory = classifier.trainModel(trainingVectSpaceCategoryRDD, '/dados/models/naivebayes/category')
