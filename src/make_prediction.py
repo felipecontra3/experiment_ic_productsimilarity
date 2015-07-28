@@ -19,6 +19,7 @@ database = 'recsysdb'
 
 APP_NAME = 'Recomender System'
 threshold  = 0.15
+numMaxSuggestionsPerPost = 5
 
 #connecting to MongoDB
 def createMongoDBConnection(host, port, username, password, db):
@@ -102,24 +103,29 @@ def insertSuggestions(suggestions_list, iduser):
     
     suggestions_to_insert = []
     for post in suggestions_list:
-        suggestions_dict = dict()
-        suggestions_dict['iduser'] = iduser
-        suggestions_dict['idpost'] = post[0]
-        suggestions_dict['post'] = post[1][0][1]
-        suggestions_dict['resource'] = post[1][1]
-        suggestions_dict['suggetions'] = []
-        post[1][0][0].sort(key=lambda x: -x[1])
-        i = 0
-        for product in post[1][0][0]:
-            i = i + 1
+        if len(post) > 0:
+            suggestions_dict = dict()
             product_dict = dict()
-            product_dict['produto'] = product[0]
-            product_dict['cosine_similarity'] = product[1]
-            suggestions_dict['suggetions'].append(product_dict)
-            if i == 5:
-                break
 
-        suggestions_to_insert.append(suggestions_dict)
+            suggestions_dict['iduser'] = iduser
+            suggestions_dict['idpost'] = post[0]
+            suggestions_dict['post'] = post[1][0][1]
+            suggestions_dict['resource'] = post[1][1]
+            
+            post[1][0][0].sort(key=lambda x: -x[1])
+            if len(post[1][0][0]) > 0:
+                suggestions_dict['suggetions'] = []
+                i = 0
+                for product in post[1][0][0]:
+                    i = i + 1
+                    product_dict = dict()
+                    product_dict['produto'] = product[0]
+                    product_dict['cosine_similarity'] = product[1]
+                    suggestions_dict['suggetions'].append(product_dict)
+                    if i == numMaxSuggestionsPerPost:
+                        break
+
+            suggestions_to_insert.append(suggestions_dict)
 
     db = createMongoDBConnection(host, port, username, password, database)
     db.suggestions.insert_many(suggestions_to_insert)
@@ -290,10 +296,9 @@ def main(sc):
                         .join(postsRDD.map(lambda x: (x[0], x[3])))
                         .collect())
 
-        if insertSuggestions(suggestions, iduser):
-            print "Processo finalizado."
-        else:
-            print "Ocorreu algum erro."
+        if len(suggestions) > 0:
+            insertSuggestions(suggestions, iduser)
+
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
