@@ -99,7 +99,7 @@ def getTokensAndCategories():
 
     return tokens_list, categories_list, categories_and_subcategories_list
 
-def insertSuggestions(suggestions_list, iduser):
+def insertSuggestions(suggestions_list, iduser, productRDD):
     
     suggestions_to_insert = []
     for post in suggestions_list:
@@ -297,7 +297,7 @@ def main(sc):
                         .collect())
 
         if len(suggestions) > 0:
-            insertSuggestions(suggestions, iduser)
+            insertSuggestions(suggestions, iduser, productRDD)
 
 
     elap = timer()-start
