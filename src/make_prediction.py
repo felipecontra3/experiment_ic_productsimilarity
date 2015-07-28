@@ -1,7 +1,5 @@
-import sys, os, math
+import sys, os, math, re, unicodedata, operator
 from timeit import default_timer as timer
-import itertools
-import re, unicodedata
 import nltk
 from nltk import word_tokenize
 from nltk.stem.porter import *
@@ -101,7 +99,7 @@ def getTokensAndCategories():
     return tokens_list, categories_list, categories_and_subcategories_list
 
 def insertSuggestions(suggestions_list, iduser):
-
+    #.sort(key=operator.itemgetter(1))
     suggestions_to_insert = []
     for post in suggestions_list:
         suggestions_dict = dict()
@@ -225,11 +223,10 @@ def main(sc):
 
     postsRDD = sc.parallelize(posts)
     tokens, category, categoryAndSubcategory = getTokensAndCategories()
-    categs = ["Computers & Tablets", "Video Games", "TV & Home Theater"]# , "Musical Instruments"]
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
-    productRDD = sc.parallelize(findProductsByCategory(categs))
+    productRDD = sc.parallelize(findProductsByCategory(category))
     productAndPostRDD = productRDD.union(postsRDD)
     
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
@@ -240,7 +237,12 @@ def main(sc):
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
-    tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3]))
+    tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3])).cache()
+    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[2]=='Post').cache()
+    tfidfPostsBroadcast = sc.broadcast(tfidfPostsRDD.map(lambda x: (x[0], x[1])).collectAsMap())
+
+    corpusPostsNormsRDD = tfidfPostsRDD.map(lambda x: (x[0], norm(x[1]))).cache()
+    corpusPostsNormsBroadcast = sc.broadcast(corpusPostsNormsRDD.collectAsMap())
 
     classifier = Classifier(sc, 'NaiveBayes')
     classifierDT = Classifier(sc, 'DecisionTree')
@@ -249,54 +251,45 @@ def main(sc):
     modelNaiveBayesSubcategory = classifier.getModel('/dados/models/naivebayes/subcategory')
     modelDecisionTree = classifierDT.getModel('/dados/models/dt/category')
 
-    postsSpaceVectorRDD = classifier.createVectSpacePost(tfidfRDD, tokens)
+    postsSpaceVectorRDD = classifier.createVectSpacePost(tfidfPostsRDD, tokens)     
 
     #predictionCategoryNaiveBayesCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
-    predictionCategoryNaiveBayesSubcategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesSubcategory.predict(p))
     #predictionCategoryDecisionTreeRDD = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
-    
-    #print 'NB Category %d' % predictionCategoryNaiveBayesCategoryRDD.take(1)[0]
-    #print 'NB Subategory %d' % predictionCategoryNaiveBayesSubcategoryRDD.take(1)[0]
-    #print 'DT Category %d' % predictionCategoryDecisionTreeRDD.take(1)[0]
+    predictions = postsSpaceVectorRDD.map(lambda p: (modelNaiveBayesSubcategory.predict(p[1]), p[0])).groupByKey().mapValues(list).collect()     
 
-    category_to_use = category[int(predictionCategoryNaiveBayesSubcategoryRDD.take(1)[0])]
-    tfidfProductsCategoryRDD = tfidfRDD.filter(lambda x: x[2]==category_to_use).cache()
-    corpusInvPairsProductsRDD = tfidfProductsCategoryRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
+    for prediction in predictions:
 
+        category_to_use = categoryAndSubcategory[int(prediction[0])][0]
 
+        tfidfProductsCategoryRDD = tfidfRDD.filter(lambda x: x[2]==category_to_use).cache()
+        tfidfProductsCategoryBroadcast = sc.broadcast(tfidfProductsCategoryRDD.map(lambda x: (x[0], x[1])).collectAsMap())
 
-    tfidfPostsRDD = tfidfRDD.filter(lambda x: x[2]=='Post').cache()
-    corpusInvPairsPostsRDD = tfidfPostsRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
+        corpusInvPairsProductsRDD = tfidfProductsCategoryRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).cache()
+        corpusInvPairsPostsRDD = tfidfPostsRDD.flatMap(lambda r: ([(x, r[0]) for x in r[1]])).filter(lambda x: x[1] in prediction[1]).cache()
+        commonTokens = (corpusInvPairsProductsRDD.join(corpusInvPairsPostsRDD)
+                                                 .map(lambda x: (x[1], x[0]))
+                                                 .groupByKey()
+                                                 .cache())
+        corpusProductsNormsRDD = tfidfProductsCategoryRDD.map(lambda x: (x[0], norm(x[1]))).cache()
+        corpusProductsNormsBroadcast = sc.broadcast(corpusProductsNormsRDD.collectAsMap())
 
-    commonTokens = (corpusInvPairsProductsRDD.join(corpusInvPairsPostsRDD)
-                                      .map(lambda x: (x[1], x[0]))
-                                      .groupByKey()
-                                      .cache())
-
-    corpusProductsNormsRDD = tfidfProductsCategoryRDD.map(lambda x: (x[0], norm(x[1]))).cache()
-    corpusPostsNormsRDD = tfidfPostsRDD.map(lambda x: (x[0], norm(x[1]))).cache()
-
-    tfidfProductsCategoryBroadcast = sc.broadcast(tfidfProductsCategoryRDD.map(lambda x: (x[0], x[1])).collectAsMap())
-    tfidfPostsBroadcast = sc.broadcast(tfidfPostsRDD.map(lambda x: (x[0], x[1])).collectAsMap())
-    corpusProductsNormsBroadcast = sc.broadcast(corpusProductsNormsRDD.collectAsMap())
-    corpusNormsPostsBroadcast = sc.broadcast(corpusPostsNormsRDD.collectAsMap())
-
-    similaritiesRDD =  (commonTokens
-                            .map(lambda x: cosineSimilarity(x, tfidfProductsCategoryBroadcast.value, tfidfPostsBroadcast.value, corpusProductsNormsBroadcast.value, corpusNormsPostsBroadcast.value))
+        similaritiesRDD =  (commonTokens
+                            .map(lambda x: cosineSimilarity(x, tfidfProductsCategoryBroadcast.value, tfidfPostsBroadcast.value, corpusProductsNormsBroadcast.value, corpusPostsNormsBroadcast.value))
                             .cache())
 
-    suggestionsRDD = (similaritiesRDD
+        suggestions = (similaritiesRDD
                         .map(lambda x: (x[0][1], (x[0][0], x[1])))
                         .filter(lambda x: x[1][1]>threshold)
-                        .groupByKey())
-    suggestionsRDD = suggestionsRDD.join(postsRDD)
-    suggestionsRDD = suggestionsRDD.join(postsRDD.map(lambda x: (x[0], x[3])))
-    suggestionsRDD = suggestionsRDD.mapValues(list)
+                        .groupByKey()
+                        .join(postsRDD)
+                        .join(postsRDD.map(lambda x: (x[0], x[3])))
+                        .mapValues(list)
+                        .collect())
 
-    if insertSuggestions(suggestionsRDD.collect(), iduser):
-        print "Processo finalizado."
-    else:
-        print "Ocorreu algum erro."
+        if insertSuggestions(suggestions, iduser):
+            print "Processo finalizado."
+        else:
+            print "Ocorreu algum erro."
 
     elap = timer()-start
     print 'it tooks %d seconds' % elap
