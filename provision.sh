@@ -30,7 +30,7 @@ pip install nltk
 pip install pymongo
 
 touch nltk_download.py
-printf "import nltk\nnltk.download('punkt')\nnltk.download('stopwords')" > nltk_download.py
+printf "import nltk\nnltk.download('punkt')\nnltk.download('stopwords')\nnltk.download('maxent_treebank_pos_tagger')" > nltk_download.py
 python nltk_download.py
 rm nltk_download.py
 
