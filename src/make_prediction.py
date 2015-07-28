@@ -1,4 +1,4 @@
-import sys, os, math, re, unicodedata, operator
+import sys, os, math, re, unicodedata
 from timeit import default_timer as timer
 import nltk
 from nltk import word_tokenize
@@ -18,7 +18,7 @@ password = ''
 database = 'recsysdb'
 
 APP_NAME = 'Recomender System'
-threshold  = 0.1
+threshold  = 0.15
 
 #connecting to MongoDB
 def createMongoDBConnection(host, port, username, password, db):
@@ -99,7 +99,7 @@ def getTokensAndCategories():
     return tokens_list, categories_list, categories_and_subcategories_list
 
 def insertSuggestions(suggestions_list, iduser):
-    #.sort(key=operator.itemgetter(1))
+    
     suggestions_to_insert = []
     for post in suggestions_list:
         suggestions_dict = dict()
@@ -108,12 +108,16 @@ def insertSuggestions(suggestions_list, iduser):
         suggestions_dict['post'] = post[1][0][1]
         suggestions_dict['resource'] = post[1][1]
         suggestions_dict['suggetions'] = []
-
+        post[1][0][0].sort(key=lambda x: -x[1])
+        i = 0
         for product in post[1][0][0]:
+            i = i + 1
             product_dict = dict()
             product_dict['produto'] = product[0]
             product_dict['cosine_similarity'] = product[1]
             suggestions_dict['suggetions'].append(product_dict)
+            if i == 5:
+                break
 
         suggestions_to_insert.append(suggestions_dict)
 
@@ -281,9 +285,9 @@ def main(sc):
                         .map(lambda x: (x[0][1], (x[0][0], x[1])))
                         .filter(lambda x: x[1][1]>threshold)
                         .groupByKey()
+                        .mapValues(list)
                         .join(postsRDD)
                         .join(postsRDD.map(lambda x: (x[0], x[3])))
-                        .mapValues(list)
                         .collect())
 
         if insertSuggestions(suggestions, iduser):
