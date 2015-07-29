@@ -9,6 +9,8 @@ from pymongo import MongoClient
 from pyspark import SparkConf, SparkContext
 from classes.Classifier import Classifier
 
+start = timer()
+
 #general variables
 #MongoDB
 host = '192.168.33.10'
@@ -18,8 +20,9 @@ password = ''
 database = 'recsysdb'
 
 APP_NAME = 'Recomender System'
-threshold  = 0.15
+threshold  = 0.1
 numMaxSuggestionsPerPost = 5
+numStarts = 5
 
 #connecting to MongoDB
 def createMongoDBConnection(host, port, username, password, db):
@@ -115,15 +118,17 @@ def insertSuggestions(suggestions_list, iduser, productRDD):
             post[1][0][0].sort(key=lambda x: -x[1])
             if len(post[1][0][0]) > 0:
                 suggestions_dict['suggetions'] = []
-                i = 0
-                for product in post[1][0][0]:
-                    i = i + 1
+
+                maxCosine = max([x[1] for x in post[1][0][0][:numMaxSuggestionsPerPost]])
+                minCosine = 0
+                lenInterval = (maxCosine - minCosine)/numStarts
+
+                for product in post[1][0][0][:numMaxSuggestionsPerPost]:
                     product_dict = dict()
                     product_dict['produto'] = product[0]
                     product_dict['cosine_similarity'] = product[1]
+                    product_dict['rate'] = (product_dict['cosine_similarity']-minCosine)/lenInterval
                     suggestions_dict['suggetions'].append(product_dict)
-                    if i == numMaxSuggestionsPerPost:
-                        break
 
             suggestions_to_insert.append(suggestions_dict)
 
@@ -219,7 +224,7 @@ def cosineSimilarity(record, idfsRDD, idfsRDD2, corpusNorms1, corpusNorms2):
     return (key, value)
 
 def main(sc):
-    start = timer()
+    
 
     iduser = 1
     posts = [
@@ -233,6 +238,7 @@ def main(sc):
 
     postsRDD = sc.parallelize(posts)
     tokens, category, categoryAndSubcategory = getTokensAndCategories()
+
     stpwrds = stopwords.words('english')
     tbl_translate = dict.fromkeys(i for i in xrange(sys.maxunicode) if unicodedata.category(unichr(i)).startswith('P') or unicodedata.category(unichr(i)).startswith('N'))
 
@@ -241,32 +247,27 @@ def main(sc):
     productAndPostRDD = productRDD.union(postsRDD)
     
     corpusRDD = (productAndPostRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
-                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds and x in tokens], s[2], s[3]))
-                           .map(lambda s: (s[0], [x[0] for x in pos_tag(s[1]) if x[1] == 'NN' or x[1] == 'NNP'], s[2], s[3]))
-                           .filter(lambda x: len(x[1]) >= 10 or x[2] == u'Post')
+                           .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3]))
+                           .map(lambda s: (s[0], [x for x in s[1] if x in tokens], s[2], s[3]))
+                           .filter(lambda x: len(x[1]) >= 20 or x[2] == u'Post')
                            .cache())
-
-    print corpusRDD.take(1)
-    sys.exit(0)
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
     tfidfRDD = corpusRDD.map(lambda x: (x[0], tfidf(x[1], idfsRDDBroadcast.value), x[2], x[3])).cache()
+    
     tfidfPostsRDD = tfidfRDD.filter(lambda x: x[2]=='Post').cache()
     tfidfPostsBroadcast = sc.broadcast(tfidfPostsRDD.map(lambda x: (x[0], x[1])).collectAsMap())
-
     corpusPostsNormsRDD = tfidfPostsRDD.map(lambda x: (x[0], norm(x[1]))).cache()
     corpusPostsNormsBroadcast = sc.broadcast(corpusPostsNormsRDD.collectAsMap())
 
     classifier = Classifier(sc, 'NaiveBayes')
-    classifierDT = Classifier(sc, 'DecisionTree')
-
-    modelNaiveBayesCategory = classifier.getModel('/dados/models/naivebayes/category')
-    modelNaiveBayesSubcategory = classifier.getModel('/dados/models/naivebayes/subcategory')
-    modelDecisionTree = classifierDT.getModel('/dados/models/dt/category')
+    #classifierDT = Classifier(sc, 'DecisionTree')
+    #modelNaiveBayesCategory = classifier.getModel('/dados/models/naivebayes/category_new')
+    modelNaiveBayesSubcategory = classifier.getModel('/dados/models/naivebayes/subcategory_new')
+    #modelDecisionTree = classifierDT.getModel('/dados/models/dt/category_new')
 
     postsSpaceVectorRDD = classifier.createVectSpacePost(tfidfPostsRDD, tokens)     
-
     #predictionCategoryNaiveBayesCategoryRDD = postsSpaceVectorRDD.map(lambda p: modelNaiveBayesCategory.predict(p))
     #predictionCategoryDecisionTreeRDD = modelDecisionTree.predict(postsSpaceVectorRDD.map(lambda x: x))
     predictions = postsSpaceVectorRDD.map(lambda p: (modelNaiveBayesSubcategory.predict(p[1]), p[0])).groupByKey().mapValues(list).collect()     
@@ -284,6 +285,7 @@ def main(sc):
                                                  .map(lambda x: (x[1], x[0]))
                                                  .groupByKey()
                                                  .cache())
+        
         corpusProductsNormsRDD = tfidfProductsCategoryRDD.map(lambda x: (x[0], norm(x[1]))).cache()
         corpusProductsNormsBroadcast = sc.broadcast(corpusProductsNormsRDD.collectAsMap())
 

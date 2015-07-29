@@ -24,7 +24,7 @@ class Classifier:
 
 	def createVectSpacePost(self, featureCorpus, tokens):
 		numTokens = len(tokens)
-		return featureCorpus.map(lambda t: (t[0],SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
+		return featureCorpus.map(lambda t: (t[0], SparseVector(numTokens, sorted([tokens.index(i) for i in t[1].keys()]), [t[1][tokens[i]] for i in sorted([tokens.index(i) for i in t[1].keys()])])))
 
 	def trainModel(self, vectSpace, path):
 		try:

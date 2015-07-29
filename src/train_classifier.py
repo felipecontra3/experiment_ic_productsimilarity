@@ -89,6 +89,8 @@ def insertTokensAndCategories(tokens, category, categoryAndSubcategory):
 
     modelCollection.insert_one(document_mongo)
 
+    modelCollection.remove({'_type':'category and subcategory'})
+    
     document_mongo =  dict()
     document_mongo['_type'] = 'category and subcategory'
     document_mongo['_datetime'] = datetime.datetime.utcnow()
@@ -156,7 +158,8 @@ def main(sc):
     productRDD = sc.parallelize(findProductsByCategory(categs))
     corpusRDD = (productRDD.map(lambda s: (s[0], word_tokenize(s[1].translate(tbl_translate).lower()), s[2], s[3]))
 						   .map(lambda s: (s[0], [PorterStemmer().stem(x) for x in s[1] if x not in stpwrds], s[2], s[3] ))
-                           .map(lambda s: (s[0], [x[0] for x in pos_tag(s[1]) if x[1] == 'NN' or x[1] == 'NNP'], s[2], s[3])))
+                           .map(lambda s: (s[0], [x[0] for x in pos_tag(s[1]) if x[1] == 'NN' or x[1] == 'NNP'], s[2], s[3]))
+                           .cache())
 
     idfsRDD = idfs(corpusRDD)
     idfsRDDBroadcast = sc.broadcast(idfsRDD.collectAsMap())
