@@ -117,7 +117,7 @@ def insertSuggestions(suggestions_list, iduser, productRDD):
             
             post[1][0][0].sort(key=lambda x: -x[1])
             if len(post[1][0][0]) > 0:
-                suggestions_dict['suggetions'] = []
+                suggestions_dict['suggestions'] = []
 
                 maxCosine = max([x[1] for x in post[1][0][0][:numMaxSuggestionsPerPost]])
                 minCosine = 0
@@ -125,10 +125,10 @@ def insertSuggestions(suggestions_list, iduser, productRDD):
 
                 for product in post[1][0][0][:numMaxSuggestionsPerPost]:
                     product_dict = dict()
-                    product_dict['produto'] = product[0]
+                    product_dict['product'] = product[0]
                     product_dict['cosine_similarity'] = product[1]
                     product_dict['rate'] = (product_dict['cosine_similarity']-minCosine)/lenInterval
-                    suggestions_dict['suggetions'].append(product_dict)
+                    suggestions_dict['suggestions'].append(product_dict)
 
             suggestions_to_insert.append(suggestions_dict)
 
@@ -285,7 +285,7 @@ def main(sc):
                                                  .map(lambda x: (x[1], x[0]))
                                                  .groupByKey()
                                                  .cache())
-        
+
         corpusProductsNormsRDD = tfidfProductsCategoryRDD.map(lambda x: (x[0], norm(x[1]))).cache()
         corpusProductsNormsBroadcast = sc.broadcast(corpusProductsNormsRDD.collectAsMap())
 
